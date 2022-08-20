@@ -14,6 +14,8 @@ using namespace std;
 
 const int MAX_RESULT_DOCUMENT_COUNT = 5;
 
+const double EPSILON = 1e-6;
+
 string ReadLine() {
     string s;
     getline(cin, s);
@@ -27,22 +29,6 @@ int ReadLineWithNumber() {
     return result;
 }
 
-//vector<int> ReadRatingsLine() {
-//    int N;
-//    cin >> N;
-//    vector<int> ratings;
-//    //ratings.reserve(N);
-//
-//    int val;
-//    for (size_t i = 0; i < N; i++)
-//    {
-//        cin >> val;
-//        ratings.push_back(val);
-//    }
-//    ReadLine();
-//    return ratings;
-//}
-
 vector<int> ReadRatingsLine() {
     vector<int> ratings;
     string rawInput;
@@ -51,11 +37,11 @@ vector<int> ReadRatingsLine() {
     getline(cin, rawInput);
     ss << rawInput;
 
-    int N;
+    size_t ratings_count = 0u;
     int val;
-    ss >> N;
+    ss >> ratings_count;
 
-    for (size_t i = 0; i < N; i++)
+    for (size_t i = 0; i < ratings_count; i++)
     {
         ss >> val;
         ratings.push_back(val);
@@ -103,7 +89,7 @@ class SearchServer {
 
 public:
 
-    int GetDocumentCount() const {
+    size_t GetDocumentCount() const {
         return document_count_;
     }
 
@@ -126,27 +112,16 @@ public:
         }
     }
 
-    /*void SortDocuments(vector<Document>& matched_documents) {
-        sort(matched_documents.begin(), matched_documents.end(),
-            [](const Document& lhs, const Document& rhs) {
-                return pair(lhs.rating, lhs.relevance) > pair(rhs.rating, rhs.relevance);
-            });
-    }*/
-
     template <typename Requirement>
     vector<Document> FindTopDocuments(const string& raw_query, Requirement requirement) const {
 
         Query parsed_query = ParseQuery(raw_query);
         auto matched_documents = FindAllDocuments(parsed_query, requirement);
 
-        // копия EPSILON
-        auto local_epsilon = EPSILON;
-
-        // с локальной копией все работает
         sort(matched_documents.begin(), matched_documents.end(),
-            [local_epsilon](const Document& lhs, const Document& rhs) {
+            [](const Document& lhs, const Document& rhs) {
                 return lhs.relevance > rhs.relevance ||
-                    (abs(lhs.relevance - rhs.relevance) < local_epsilon && lhs.rating > rhs.rating);
+                    (abs(lhs.relevance - rhs.relevance) < EPSILON && lhs.rating > rhs.rating);
             });
 
         if (matched_documents.size() > MAX_RESULT_DOCUMENT_COUNT) {
@@ -192,8 +167,6 @@ public:
 
 private:
 
-    const double EPSILON = 1e-6;
-
     struct Query {
         set<string> plus_words;
         set<string> minus_words;
@@ -211,7 +184,7 @@ private:
 
     set<string> stop_words_;
 
-    int document_count_ = 0;
+    size_t document_count_ = 0;
 
     bool IsStopWord(const string& word) const {
         return stop_words_.count(word) > 0;
@@ -234,16 +207,17 @@ private:
 
         for (const string& plus_word : parsed_query.plus_words) {
             if (word_to_documents_freqs_.count(plus_word)) {
-                double word_IDF = log10(static_cast<double>(document_count_) / word_to_documents_freqs_.at(plus_word).size());
-                for (const auto& [document_id, TF] : word_to_documents_freqs_.at(plus_word)) {
-                    if (requirement(document_id, documents_data_.at(document_id).status, documents_data_.at(document_id).rating))
-                        document_TF_IDF_relevance[document_id] += word_IDF * TF;
+                double word_IDF = log(static_cast<double>(document_count_) / word_to_documents_freqs_.at(plus_word).size());
+                for (const auto& [document_id, term_freq] : word_to_documents_freqs_.at(plus_word)) {
+                    const auto& current_document_data = documents_data_.at(document_id);
+                    if (requirement(document_id, current_document_data.status, current_document_data.rating))
+                        document_TF_IDF_relevance[document_id] += word_IDF * term_freq;
                 }
             }
         }
         for (string minus_word : parsed_query.minus_words) {
             if (word_to_documents_freqs_.count(minus_word)) {
-                for (const auto& [document_id, TF] : word_to_documents_freqs_.at(minus_word)) {
+                for (const auto& [document_id, term_freq] : word_to_documents_freqs_.at(minus_word)) {
                     document_TF_IDF_relevance.erase(document_id);
                 }
             }
@@ -294,24 +268,6 @@ private:
         return 0;
     }
 };
-
-// Считывает из cin стоп-слова и документ и возвращает настроенный экземпляр поисковой системы
-//SearchServer CreateSearchServer() {
-//    SearchServer search_server;
-//
-//    search_server.SetStopWords(ReadLine());
-//
-//    int N = ReadLineWithNumber();
-//    for (size_t document_id = 0; document_id < N; document_id++)
-//    {
-//        string document_content = ReadLine();
-//        vector<int> ratings = ReadRatingsLine();
-//        search_server.AddDocument(document_id, document_content, ratings);
-//        //search_server.AddDocument(document_id, ReadLine(), ReadRatingsLine());
-//    }
-//
-//    return search_server;
-//}
 
 void PrintDocument(const Document& document) {
     cout << "{ "s
@@ -420,13 +376,15 @@ void TestAddedDocumentCanBeFoundWithCorrectQuery() {
     // добавленный документ находится корректным запросом и не находится неподходящим запросом
     {
         SearchServer server;
+        ASSERT_EQUAL(server.GetDocumentCount(), 0u);
         server.AddDocument(document_id, content, DocumentStatus::ACTUAL, ratings);
+        ASSERT_EQUAL(server.GetDocumentCount(), 1u);
 
         auto found_docs = server.FindTopDocuments("black cat"s);
-        ASSERT_EQUAL(found_docs.size(), 0);
+        ASSERT_EQUAL(found_docs.size(), 0u);
 
         found_docs = server.FindTopDocuments("brown dog"s);
-        ASSERT_EQUAL(found_docs.size(), 1);
+        ASSERT_EQUAL(found_docs.size(), 1u);
         ASSERT(found_docs.front().id == document_id);
     }
 
@@ -436,7 +394,7 @@ void TestAddedDocumentCanBeFoundWithCorrectQuery() {
         server.AddDocument(999, ""s, DocumentStatus::ACTUAL, { 5 });
 
         const auto found_docs = server.FindTopDocuments("black cat"s);
-        ASSERT_EQUAL(found_docs.size(), 0);
+        ASSERT_EQUAL(found_docs.size(), 0u);
     }
 
     // документ не находится пустым запросом
@@ -445,7 +403,7 @@ void TestAddedDocumentCanBeFoundWithCorrectQuery() {
         server.AddDocument(document_id, content, DocumentStatus::ACTUAL, ratings);
 
         const auto found_docs = server.FindTopDocuments(""s);
-        ASSERT_EQUAL(found_docs.size(), 0);
+        ASSERT_EQUAL(found_docs.size(), 0u);
     }
 }
 
@@ -460,7 +418,7 @@ void TestExcludeStopWordsFromAddedDocumentContent() {
         SearchServer server;
         server.AddDocument(doc_id, content, DocumentStatus::ACTUAL, ratings);
         const auto found_docs = server.FindTopDocuments("in"s);
-        ASSERT_EQUAL(found_docs.size(), 1);
+        ASSERT_EQUAL(found_docs.size(), 1u);
         const Document& doc0 = found_docs[0];
         ASSERT(doc0.id == doc_id);
     }
@@ -484,26 +442,20 @@ void TestExcludeDocumentsWithMinusWordsFromResult() {
     {
         SearchServer server;
         server.AddDocument(doc_id, content, DocumentStatus::ACTUAL, ratings);
-        ASSERT_EQUAL(server.FindTopDocuments("brown dog"s).size(), 1);
+        ASSERT_EQUAL(server.FindTopDocuments("brown dog -black"s).size(), 1u);
     }
 
     {
         SearchServer server;
         server.AddDocument(doc_id, content, DocumentStatus::ACTUAL, ratings);
-        ASSERT_EQUAL(server.FindTopDocuments("brown dog -black"s).size(), 1);
-    }
-
-    {
-        SearchServer server;
-        server.AddDocument(doc_id, content, DocumentStatus::ACTUAL, ratings);
-        ASSERT_EQUAL(server.FindTopDocuments("brown dog -cute"s).size(), 0);
+        ASSERT_EQUAL(server.FindTopDocuments("brown dog -cute"s).size(), 0u);
     }
 
     {
         SearchServer server;
         server.SetStopWords("on the"s);
         server.AddDocument(doc_id, content, DocumentStatus::ACTUAL, ratings);
-        ASSERT_EQUAL(server.FindTopDocuments("brown dog -the"s).size(), 1);
+        ASSERT_EQUAL(server.FindTopDocuments("brown dog -the"s).size(), 1u);
     }
 }
 
@@ -518,39 +470,21 @@ void TestMatchDocumentReturnsCorrectWords() {
         SearchServer server;
         server.AddDocument(doc_id, content, DocumentStatus::ACTUAL, ratings);
 
-        const auto matching_result = server.MatchDocument("brown dog on square"s, 42);
-        const auto& matched_words = get<0>(matching_result);
-        ASSERT_EQUAL(matched_words.size(), 4);
-        ASSERT_EQUAL(matched_words.at(0), "brown"s);
-        ASSERT_EQUAL(matched_words.at(1), "dog"s);
-        ASSERT_EQUAL(matched_words.at(2), "on"s);
-        ASSERT_EQUAL(matched_words.at(3), "square"s);
-        ASSERT(get<1>(matching_result) == DocumentStatus::ACTUAL);
-    }
-
-    {
-        SearchServer server;
-        server.SetStopWords("on the"s);
-        server.AddDocument(doc_id, content, DocumentStatus::ACTUAL, ratings);
-        
-        const auto matching_result = server.MatchDocument("brown dog on square"s, 42);
-        const auto& matched_words = get<0>(matching_result);
-
-        ASSERT_EQUAL(matched_words.size(), 3);
-        ASSERT_EQUAL(matched_words.at(0), "brown"s);
-        ASSERT_EQUAL(matched_words.at(1), "dog"s);
-        ASSERT_EQUAL(matched_words.at(2), "square"s);
-        ASSERT(get<1>(matching_result) == DocumentStatus::ACTUAL);
+        const auto& [matched_words, matched_document_status] = server.MatchDocument("brown dog on square"s, 42);
+        ASSERT_EQUAL(matched_words.size(), 4u);
+        ASSERT_EQUAL(matched_words[0], "brown"s);
+        ASSERT_EQUAL(matched_words[1], "dog"s);
+        ASSERT_EQUAL(matched_words[2], "on"s);
+        ASSERT_EQUAL(matched_words[3], "square"s);
+        ASSERT(matched_document_status == DocumentStatus::ACTUAL);
     }
 
     {
         SearchServer server;
         server.AddDocument(doc_id, content, DocumentStatus::ACTUAL, ratings);
-        server.SetStopWords("on the"s);
 
-        const auto matching_result = server.MatchDocument("brown dog -square"s, 42);
-        const auto& matched_words = get<0>(matching_result);
-        ASSERT_EQUAL(matched_words.size(), 0);
+        const auto& [matched_words, matched_document_status] = server.MatchDocument("brown dog -square"s, 42);
+        ASSERT_EQUAL(matched_words.size(), 0u);
     }
 }
 
@@ -565,10 +499,11 @@ void TestFoundDocumentsSortedByDescending() {
         server.AddDocument(4, "no matched words here at all"s, DocumentStatus::ACTUAL, { 4 });
 
         const auto found_documents = server.FindTopDocuments("five four three two one zero"s);
-        ASSERT_EQUAL(found_documents.size(), 3);
-        ASSERT_EQUAL(found_documents.at(0).id, 1);
-        ASSERT_EQUAL(found_documents.at(1).id, 3);
-        ASSERT_EQUAL(found_documents.at(2).id, 2);
+        ASSERT_EQUAL(found_documents.size(), 3u);
+        ASSERT(found_documents[0].relevance > found_documents[1].relevance
+            || ((found_documents[0].relevance == found_documents[1].relevance) && (found_documents[0].rating >= found_documents[1].rating)));
+        ASSERT(found_documents[1].relevance > found_documents[2].relevance
+            || ((found_documents[1].relevance == found_documents[2].relevance) && (found_documents[1].rating >= found_documents[2].rating)));
     }
 }
 
@@ -580,102 +515,92 @@ void TestComputeRatingOfAddedDocument() {
 
     {
         SearchServer server;
-        server.AddDocument(doc_id, content, DocumentStatus::ACTUAL, {});
+        const vector<int> empty_ratings = {};
+        const int default_rating = 0;
+        server.AddDocument(doc_id, content, DocumentStatus::ACTUAL, empty_ratings);
 
         const auto found_documents = server.FindTopDocuments("brown dog on square"s);
-        ASSERT_EQUAL(found_documents.size(), 1);
-        ASSERT_EQUAL(found_documents.front().rating, 0);
+        ASSERT_EQUAL(found_documents.size(), 1u);
+        ASSERT_EQUAL(found_documents[0].rating, default_rating);
     }
 
     {
         SearchServer server;
-        server.AddDocument(doc_id, content, DocumentStatus::ACTUAL, {3, 4, 4, 5});
+        const vector<int> ratings = { 3, 4, 4, 5 };
+        const int calculated_rating = accumulate(ratings.begin(), ratings.end(), 0) / static_cast<int>(ratings.size()); // = (3 + 4 + 4 + 5)/4 = 16/4 = 4
+        ASSERT(calculated_rating == 4);
+        server.AddDocument(doc_id, content, DocumentStatus::ACTUAL, ratings);
 
         const auto found_documents = server.FindTopDocuments("brown dog on square"s);
-        ASSERT_EQUAL(found_documents.size(), 1);
-        ASSERT_EQUAL(found_documents.front().rating, 4);
+        ASSERT_EQUAL(found_documents.size(), 1u);
+        ASSERT_EQUAL(found_documents[0].rating, calculated_rating);
     }
 
     // рейтинг округляется до ближайшего целого числа
     {
         SearchServer server;
+        const vector<int> ratings = { 3, 4, 4, 4 };
+        const int calculated_rating = accumulate(ratings.begin(), ratings.end(), 0) / static_cast<int>(ratings.size()); // = (3 + 4 + 4 + 4)/4 = 15/4 = (int)3.75 = 3
+        ASSERT(calculated_rating == 3);
         server.AddDocument(doc_id, content, DocumentStatus::ACTUAL, { 3, 4, 4, 4 });
 
         const auto found_documents = server.FindTopDocuments("brown dog on square"s);
-        ASSERT_EQUAL(found_documents.size(), 1);
-        ASSERT_EQUAL(found_documents.front().rating, 3);
+        ASSERT_EQUAL(found_documents.size(), 1u);
+        ASSERT_EQUAL(found_documents[0].rating, calculated_rating);
     }
 }
 
 // Тест проверяет, что корректно осуществляется поиск документов с заданным статусом
 void TestFindDocumentsWithSpecificStatus() {
-    {
-        SearchServer server;
-        server.AddDocument(1, "one two three four five"s, DocumentStatus::IRRELEVANT, { 0 });
-        server.AddDocument(2, "one two three a b"s, DocumentStatus::ACTUAL, { 2 });
-        server.AddDocument(3, "one two three x y"s, DocumentStatus::IRRELEVANT, { 3 });
-        server.AddDocument(4, "no matched words here at all"s, DocumentStatus::IRRELEVANT, { 4 });
 
+    SearchServer server;
+    server.AddDocument(1, "one two three four five"s, DocumentStatus::IRRELEVANT, { 0 });
+    server.AddDocument(2, "one two three a b"s, DocumentStatus::ACTUAL, { 2 });
+    server.AddDocument(3, "one two three x y"s, DocumentStatus::IRRELEVANT, { 3 });
+    server.AddDocument(4, "no matched words here at all"s, DocumentStatus::IRRELEVANT, { 4 });
+
+    {
         const auto found_documents = server.FindTopDocuments("five four three two one zero"s, DocumentStatus::IRRELEVANT);
-        ASSERT_EQUAL(found_documents.size(), 2);
-        ASSERT_EQUAL(found_documents.at(0).id, 1);
-        ASSERT_EQUAL(found_documents.at(1).id, 3);
+        ASSERT_EQUAL(found_documents.size(), 2u);
+        ASSERT_EQUAL(found_documents[0].id, 1);
+        ASSERT_EQUAL(found_documents[1].id, 3);
     }
 
-    // без уточнения стутуса поиск осуществляется среди ACTUAL документов
+    // поиск по статусу, не заданном ни для одного из документов
     {
-        SearchServer server;
-        server.AddDocument(1, "one two three four five"s, DocumentStatus::IRRELEVANT, { 0 });
-        server.AddDocument(2, "one two three a b"s, DocumentStatus::ACTUAL, { 2 });
-        server.AddDocument(3, "one two three x y"s, DocumentStatus::IRRELEVANT, { 3 });
-        server.AddDocument(4, "no matched words here at all"s, DocumentStatus::IRRELEVANT, { 4 });
-
-        const auto found_documents = server.FindTopDocuments("five four three two one zero"s);
-        ASSERT_EQUAL(found_documents.size(), 1);
-        ASSERT_EQUAL(found_documents.at(0).id, 2);
+        const auto found_documents = server.FindTopDocuments("five four three two one zero"s, DocumentStatus::BANNED);
+        ASSERT_EQUAL(found_documents.size(), 0u);
     }
 }
 
 // Тест проверяет поиск документов по заданному пользовательским предикатом фильтру
 void TestFindDocumentsWithUserPredicate() {
-    //search_server.FindTopDocuments("пушистый ухоженный кот"s, [](int document_id, DocumentStatus status, int rating) { return document_id % 2 == 0; }))
-    {
-        SearchServer server;
-        server.AddDocument(1, "one two three four five"s, DocumentStatus::IRRELEVANT, { 0 });
-        server.AddDocument(2, "one two three a b"s, DocumentStatus::ACTUAL, { 2 });
-        server.AddDocument(3, "one two three x y"s, DocumentStatus::IRRELEVANT, { 3 });
-        server.AddDocument(4, "no matched words here at all"s, DocumentStatus::IRRELEVANT, { 4 });
+    
+    SearchServer server;
+    server.AddDocument(1, "one two three four five"s, DocumentStatus::IRRELEVANT, { 0 });
+    server.AddDocument(2, "one two three a b"s, DocumentStatus::ACTUAL, { 2 });
+    server.AddDocument(3, "one two three x y"s, DocumentStatus::IRRELEVANT, { 3 });
+    server.AddDocument(4, "no matched words here at all"s, DocumentStatus::IRRELEVANT, { 4 });
 
+    {
         const auto found_documents = server.FindTopDocuments("five four three two one zero"s,
             [](int document_id, DocumentStatus status, int rating) {return rating > 0; });
-        ASSERT_EQUAL(found_documents.size(), 2);
-        ASSERT_EQUAL(found_documents.at(0).id, 3);
-        ASSERT_EQUAL(found_documents.at(1).id, 2);
+        ASSERT_EQUAL(found_documents.size(), 2u);
+        ASSERT_EQUAL(found_documents[0].id, 3);
+        ASSERT_EQUAL(found_documents[1].id, 2);
     }
 
     {
-        SearchServer server;
-        server.AddDocument(1, "one two three four five"s, DocumentStatus::IRRELEVANT, { 0 });
-        server.AddDocument(2, "one two three a b"s, DocumentStatus::ACTUAL, { 2 });
-        server.AddDocument(3, "one two three x y"s, DocumentStatus::IRRELEVANT, { 3 });
-        server.AddDocument(4, "no matched words here at all"s, DocumentStatus::IRRELEVANT, { 4 });
-
         const auto found_documents = server.FindTopDocuments("five four three two one zero"s,
             [](int document_id, DocumentStatus status, int rating) { return rating > 0 && status == DocumentStatus::ACTUAL; });
-        ASSERT_EQUAL(found_documents.size(), 1);
-        ASSERT_EQUAL(found_documents.at(0).id, 2);
+        ASSERT_EQUAL(found_documents.size(), 1u);
+        ASSERT_EQUAL(found_documents[0].id, 2);
     }
 
     {
-        SearchServer server;
-        server.AddDocument(1, "one two three four five"s, DocumentStatus::IRRELEVANT, { 0 });
-        server.AddDocument(2, "one two three a b"s, DocumentStatus::ACTUAL, { 2 });
-        server.AddDocument(3, "one two three x y"s, DocumentStatus::IRRELEVANT, { 3 });
-        server.AddDocument(4, "no matched words here at all"s, DocumentStatus::IRRELEVANT, { 4 });
-
         const auto found_documents = server.FindTopDocuments("five four three two one zero"s,
             [](int document_id, DocumentStatus status, int rating) {return rating > 0 && status == DocumentStatus::ACTUAL && document_id % 2 != 0; });
-        ASSERT_EQUAL(found_documents.size(), 0);
+        ASSERT_EQUAL(found_documents.size(), 0u);
     }
 }
 
@@ -683,22 +608,50 @@ void TestFindDocumentsWithUserPredicate() {
 void TestComputeRelevanceTF_IDF() {
     {
         SearchServer server;
-        server.AddDocument(1, "one two three four"s, DocumentStatus::ACTUAL, { 0 });
-        server.AddDocument(2, "one a b"s, DocumentStatus::ACTUAL, { 2 });
-        server.AddDocument(3, "b c d"s, DocumentStatus::ACTUAL, { 3 });
+        const double documents_count = 3.0;
+        server.AddDocument(1, "white cat fashionable collar"s, DocumentStatus::ACTUAL, { 0 });
+        server.AddDocument(2, "fluffy cat fluffy tail"s, DocumentStatus::ACTUAL, { 2 });
+        server.AddDocument(3, "well-kept dog expressive eyes"s, DocumentStatus::ACTUAL, { 3 });
 
-        const auto found_documents = server.FindTopDocuments("one two three four a b c d"s);
-        ASSERT_EQUAL(found_documents.size(), 3);
-        ASSERT_EQUAL(found_documents.at(0).id, 1);
-        ASSERT_EQUAL(found_documents.at(1).id, 3);
-        ASSERT_EQUAL(found_documents.at(2).id, 2);
+        const string query = "fluffy well-kept cat"s;
 
+        // Для расчета релевантности по TF-IDF:
+        //    1) посчитать IDF всех слов из запроса
+        //    2) посчитать TF слов запроса в каждом документе
+        //    3) просуммировать для каждого докумета произведения TF и IDF каждого слова
 
-        // Последние три ASSERT() не проходят проверяющую систему - нужно проверять
+        // 1) IDF - натуральный логарифм от результата деления общего количества документов на кол-во документов, в которых встречается слово
+        double fluffy_IDF = log( documents_count / 1.0); // ln(3) = 1.0986
+        double well_kept_IDF = log(documents_count / 1.0); // ln(3) = 1.0986
+        double cat_IDF = log(documents_count / 2.0); // ln(3/2) = 0.4055
 
-        /*ASSERT(abs(found_documents[0].relevance - 0.40) < 0.01);
-        ASSERT(abs(found_documents[1].relevance - 0.37) < 0.01);
-        ASSERT(abs(found_documents[2].relevance - 0.27) < 0.01);*/
+        // 2) TF - количество раз, сколько слово встечается в документе, деленное на общее число слов документа
+        vector<double> fluffy_docs_TF = { 0, 0.5, 0 }; // fluffy term frequency для первого, второго и третьего документа
+        vector<double> well_kept_docs_TF = { 0, 0, 0.25 };
+        vector<double> cat_docs_TF = { 0.25, 0.25, 0 };
+
+        // 3) TF-IDF - сумма произведений TF и IDF для каждого документа
+        double doc_one_result_relevance = fluffy_docs_TF[0] * fluffy_IDF
+            + well_kept_docs_TF[0] * well_kept_IDF
+            + cat_docs_TF[0] * cat_IDF; // = 0.25 * 0.4055 = 0.1014
+
+        double doc_two_result_relevance = fluffy_docs_TF[1] * fluffy_IDF
+            + well_kept_docs_TF[1] * well_kept_IDF
+            + cat_docs_TF[1] * cat_IDF; // = 0.5 * 1.0986 + 0.25 * 0.4055 = 0.6507
+
+        double doc_three_result_relevance = fluffy_docs_TF[2] * fluffy_IDF
+            + well_kept_docs_TF[2] * well_kept_IDF
+            + cat_docs_TF[2] * cat_IDF; // = 0,25 * 1,0986 = 0.2746
+
+        const auto found_documents = server.FindTopDocuments(query);
+        ASSERT_EQUAL(found_documents.size(), 3u);
+        ASSERT_EQUAL(found_documents[0].id, 2); // 0.6507
+        ASSERT_EQUAL(found_documents[1].id, 3); // 0.2746
+        ASSERT_EQUAL(found_documents[2].id, 1); // 0.1014
+
+        ASSERT(abs(found_documents[0].relevance - doc_two_result_relevance) < 0.0001);
+        ASSERT(abs(found_documents[1].relevance - doc_three_result_relevance) < 0.0001);
+        ASSERT(abs(found_documents[2].relevance - doc_one_result_relevance) < 0.0001);
     }
 }
 

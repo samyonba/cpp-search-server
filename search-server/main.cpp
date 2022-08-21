@@ -101,8 +101,8 @@ public:
 
         vector<string> document_words = SplitIntoWordsNoStopToLower(document);
         for (const string& word : document_words) {
-            double word_TF = static_cast<double>(count(document_words.begin(), document_words.end(), word)) / document_words.size();
-            word_to_documents_freqs_[word].insert({ document_id, word_TF });
+            double word_term_freq = static_cast<double>(count(document_words.begin(), document_words.end(), word)) / document_words.size();
+            word_to_documents_freqs_[word].insert({ document_id, word_term_freq });
         }
     }
 
@@ -203,27 +203,27 @@ private:
     template <typename Requirement>
     vector<Document> FindAllDocuments(const Query& parsed_query, Requirement requirement) const {
         vector<Document> matched_documents;
-        map<int, double> document_TF_IDF_relevance; // [id, relevance]
+        map<int, double> document_term_freq_idf_relevance; // [id, relevance]
 
         for (const string& plus_word : parsed_query.plus_words) {
             if (word_to_documents_freqs_.count(plus_word)) {
-                double word_IDF = log(static_cast<double>(document_count_) / word_to_documents_freqs_.at(plus_word).size());
+                double word_idf = log(static_cast<double>(document_count_) / word_to_documents_freqs_.at(plus_word).size());
                 for (const auto& [document_id, term_freq] : word_to_documents_freqs_.at(plus_word)) {
                     const auto& current_document_data = documents_data_.at(document_id);
                     if (requirement(document_id, current_document_data.status, current_document_data.rating))
-                        document_TF_IDF_relevance[document_id] += word_IDF * term_freq;
+                        document_term_freq_idf_relevance[document_id] += word_idf * term_freq;
                 }
             }
         }
         for (string minus_word : parsed_query.minus_words) {
             if (word_to_documents_freqs_.count(minus_word)) {
                 for (const auto& [document_id, term_freq] : word_to_documents_freqs_.at(minus_word)) {
-                    document_TF_IDF_relevance.erase(document_id);
+                    document_term_freq_idf_relevance.erase(document_id);
                 }
             }
         }
 
-        for (const auto& [document_id, relevance] : document_TF_IDF_relevance) {
+        for (const auto& [document_id, relevance] : document_term_freq_idf_relevance) {
             matched_documents.push_back({ document_id, relevance, GetDocumentRating(document_id) });
         }
 
@@ -462,29 +462,85 @@ void TestExcludeDocumentsWithMinusWordsFromResult() {
 /* Тест проверяет, что при матчинге документа возвращаются все слова из запроса, присутствующие в документе
 При наличии минус-слова возвращается пустой список слов */
 void TestMatchDocumentReturnsCorrectWords() {
-    const int doc_id = 42;
-    const string content = "cute brown dog on the Red square"s;
-    const vector<int> ratings = { 1, 2, 3 };
+    const int doc_id_1 = 42;
+    const string content_1 = "cute brown dog on the Red square"s;
+    const vector<int> ratings_1 = { 1, 2, 3 };
+
+    const int doc_id_2 = 43;
+    const string content_2 = "cat on the road"s;
+    const vector<int> ratings_2 = { 2 };
 
     {
         SearchServer server;
-        server.AddDocument(doc_id, content, DocumentStatus::ACTUAL, ratings);
+        server.AddDocument(doc_id_1, content_1, DocumentStatus::ACTUAL, ratings_1);
+        server.AddDocument(doc_id_2, content_2, DocumentStatus::ACTUAL, ratings_2);
 
-        const auto& [matched_words, matched_document_status] = server.MatchDocument("brown dog on square"s, 42);
-        ASSERT_EQUAL(matched_words.size(), 4u);
-        ASSERT_EQUAL(matched_words[0], "brown"s);
-        ASSERT_EQUAL(matched_words[1], "dog"s);
-        ASSERT_EQUAL(matched_words[2], "on"s);
-        ASSERT_EQUAL(matched_words[3], "square"s);
-        ASSERT(matched_document_status == DocumentStatus::ACTUAL);
+        const string query = "brown fluffy dog on square"s;
+
+        {
+            const auto& [matched_words, matched_document_status] = server.MatchDocument(query, doc_id_1);
+            ASSERT_EQUAL(matched_words.size(), 4u);
+            ASSERT_EQUAL(matched_words[0], "brown"s);
+            ASSERT_EQUAL(matched_words[1], "dog"s);
+            ASSERT_EQUAL(matched_words[2], "on"s);
+            ASSERT_EQUAL(matched_words[3], "square"s);
+            ASSERT(matched_document_status == DocumentStatus::ACTUAL);
+        }
+
+        {
+            const auto& [matched_words, matched_document_status] = server.MatchDocument(query, doc_id_2);
+            ASSERT_EQUAL(matched_words.size(), 1u);
+            ASSERT_EQUAL(matched_words[0], "on"s);
+            ASSERT(matched_document_status == DocumentStatus::ACTUAL);
+        }
     }
 
+    // проверяет, что стоп-слова не попадают в результат матчинга
     {
         SearchServer server;
-        server.AddDocument(doc_id, content, DocumentStatus::ACTUAL, ratings);
+        server.SetStopWords("on the"s);
+        server.AddDocument(doc_id_1, content_1, DocumentStatus::ACTUAL, ratings_1);
+        server.AddDocument(doc_id_2, content_2, DocumentStatus::ACTUAL, ratings_2);
 
-        const auto& [matched_words, matched_document_status] = server.MatchDocument("brown dog -square"s, 42);
-        ASSERT_EQUAL(matched_words.size(), 0u);
+        const string query = "brown fluffy dog on square"s;
+
+        {
+            const auto& [matched_words, matched_document_status] = server.MatchDocument(query, doc_id_1);
+            ASSERT_EQUAL(matched_words.size(), 3u);
+            ASSERT_EQUAL(matched_words[0], "brown"s);
+            ASSERT_EQUAL(matched_words[1], "dog"s);
+            ASSERT_EQUAL(matched_words[2], "square"s);
+        }
+
+        {
+            const auto& [matched_words, matched_document_status] = server.MatchDocument(query, doc_id_2);
+            ASSERT_EQUAL(matched_words.size(), 0u);
+        }
+
+    }
+
+    
+    {
+        SearchServer server;
+        server.AddDocument(doc_id_1, content_1, DocumentStatus::ACTUAL, ratings_1);
+        server.AddDocument(doc_id_2, content_2, DocumentStatus::ACTUAL, ratings_2);
+
+        const string query = "brown fluffy dog on square -black -cat"s;
+
+        // по указанному запросу должен выводиться список из 4 слов для первого документа и пустой для второго
+        {
+            const auto& [matched_words, matched_document_status] = server.MatchDocument(query, doc_id_1);
+            ASSERT_EQUAL(matched_words.size(), 4u);
+            ASSERT_EQUAL(matched_words[0], "brown"s);
+            ASSERT_EQUAL(matched_words[1], "dog"s);
+            ASSERT_EQUAL(matched_words[2], "on"s);
+            ASSERT_EQUAL(matched_words[3], "square"s);
+        }
+
+        {
+            const auto& [matched_words, matched_document_status] = server.MatchDocument(query, doc_id_2);
+            ASSERT_EQUAL(matched_words.size(), 0u);
+        }
     }
 }
 
@@ -605,7 +661,7 @@ void TestFindDocumentsWithUserPredicate() {
 }
 
 // Тест проверяет правильность расчета релевантности по TF-IDF
-void TestComputeRelevanceTF_IDF() {
+void TestComputeRelevanceTermFreqIdf() {
     {
         SearchServer server;
         const double documents_count = 3.0;
@@ -621,37 +677,58 @@ void TestComputeRelevanceTF_IDF() {
         //    3) просуммировать для каждого докумета произведения TF и IDF каждого слова
 
         // 1) IDF - натуральный логарифм от результата деления общего количества документов на кол-во документов, в которых встречается слово
-        double fluffy_IDF = log( documents_count / 1.0); // ln(3) = 1.0986
-        double well_kept_IDF = log(documents_count / 1.0); // ln(3) = 1.0986
-        double cat_IDF = log(documents_count / 2.0); // ln(3/2) = 0.4055
+        const int fluffy_containing_documents_count = 1;
+        const int well_kept_containing_documents_count = 1;
+        const int cat_containing_documents_count = 2;
+
+        const double fluffy_idf = log( documents_count / fluffy_containing_documents_count);
+        const double well_kept_idf = log(documents_count / well_kept_containing_documents_count);
+        const double cat_idf = log(documents_count / cat_containing_documents_count);
 
         // 2) TF - количество раз, сколько слово встечается в документе, деленное на общее число слов документа
-        vector<double> fluffy_docs_TF = { 0, 0.5, 0 }; // fluffy term frequency для первого, второго и третьего документа
-        vector<double> well_kept_docs_TF = { 0, 0, 0.25 };
-        vector<double> cat_docs_TF = { 0.25, 0.25, 0 };
+        double doc_1_words_count = 4;
+        double doc_2_words_count = 4;
+        double doc_3_words_count = 4;
+
+        double fluffy_doc_1_count = 0;
+        double fluffy_doc_2_count = 2;
+        double fluffy_doc_3_count = 0;
+
+        double well_kept_doc_1_count = 0;
+        double well_kept_doc_2_count = 0;
+        double well_kept_doc_3_count = 1;
+
+        double cat_doc_1_count = 1;
+        double cat_doc_2_count = 1;
+        double cat_doc_3_count = 0;
+
+        vector<double> fluffy_docs_term_freq = { fluffy_doc_1_count / doc_1_words_count, fluffy_doc_2_count / doc_2_words_count, fluffy_doc_3_count / doc_3_words_count }; // fluffy term frequency для первого, второго и третьего документа
+        vector<double> well_kept_docs_term_freq = { well_kept_doc_1_count / doc_1_words_count, well_kept_doc_2_count / doc_2_words_count, well_kept_doc_3_count / doc_3_words_count };
+        vector<double> cat_docs_term_freq = { cat_doc_1_count / doc_1_words_count, cat_doc_2_count / doc_2_words_count, cat_doc_3_count / doc_3_words_count };
 
         // 3) TF-IDF - сумма произведений TF и IDF для каждого документа
-        double doc_one_result_relevance = fluffy_docs_TF[0] * fluffy_IDF
-            + well_kept_docs_TF[0] * well_kept_IDF
-            + cat_docs_TF[0] * cat_IDF; // = 0.25 * 0.4055 = 0.1014
+        double doc_one_result_relevance = fluffy_docs_term_freq[0] * fluffy_idf
+            + well_kept_docs_term_freq[0] * well_kept_idf
+            + cat_docs_term_freq[0] * cat_idf;
 
-        double doc_two_result_relevance = fluffy_docs_TF[1] * fluffy_IDF
-            + well_kept_docs_TF[1] * well_kept_IDF
-            + cat_docs_TF[1] * cat_IDF; // = 0.5 * 1.0986 + 0.25 * 0.4055 = 0.6507
+        double doc_two_result_relevance = fluffy_docs_term_freq[1] * fluffy_idf
+            + well_kept_docs_term_freq[1] * well_kept_idf
+            + cat_docs_term_freq[1] * cat_idf;
 
-        double doc_three_result_relevance = fluffy_docs_TF[2] * fluffy_IDF
-            + well_kept_docs_TF[2] * well_kept_IDF
-            + cat_docs_TF[2] * cat_IDF; // = 0,25 * 1,0986 = 0.2746
+        double doc_three_result_relevance = fluffy_docs_term_freq[2] * fluffy_idf
+            + well_kept_docs_term_freq[2] * well_kept_idf
+            + cat_docs_term_freq[2] * cat_idf;
 
         const auto found_documents = server.FindTopDocuments(query);
-        ASSERT_EQUAL(found_documents.size(), 3u);
-        ASSERT_EQUAL(found_documents[0].id, 2); // 0.6507
-        ASSERT_EQUAL(found_documents[1].id, 3); // 0.2746
-        ASSERT_EQUAL(found_documents[2].id, 1); // 0.1014
 
-        ASSERT(abs(found_documents[0].relevance - doc_two_result_relevance) < 0.0001);
-        ASSERT(abs(found_documents[1].relevance - doc_three_result_relevance) < 0.0001);
-        ASSERT(abs(found_documents[2].relevance - doc_one_result_relevance) < 0.0001);
+        ASSERT_EQUAL(found_documents.size(), 3u);
+        ASSERT_EQUAL(found_documents[0].id, 2);
+        ASSERT_EQUAL(found_documents[1].id, 3);
+        ASSERT_EQUAL(found_documents[2].id, 1);
+
+        ASSERT(abs(found_documents[0].relevance - doc_two_result_relevance) < EPSILON);
+        ASSERT(abs(found_documents[1].relevance - doc_three_result_relevance) < EPSILON);
+        ASSERT(abs(found_documents[2].relevance - doc_one_result_relevance) < EPSILON);
     }
 }
 
@@ -664,7 +741,7 @@ void TestSearchServer() {
     RUN_TEST(TestComputeRatingOfAddedDocument);
     RUN_TEST(TestFindDocumentsWithSpecificStatus);
     RUN_TEST(TestFindDocumentsWithUserPredicate);
-    RUN_TEST(TestComputeRelevanceTF_IDF);
+    RUN_TEST(TestComputeRelevanceTermFreqIdf);
 }
 
 int main() {
@@ -672,30 +749,3 @@ int main() {
     // Если вы видите эту строку, значит все тесты прошли успешно
     cout << "Search server testing finished"s << endl;
 }
-
-//int main() {
-//    SearchServer search_server;
-//    search_server.SetStopWords("и в на"s);
-//
-//    search_server.AddDocument(0, "белый кот и модный ошейник"s, DocumentStatus::ACTUAL, { 8, -3 });
-//    search_server.AddDocument(1, "пушистый кот пушистый хвост"s, DocumentStatus::ACTUAL, { 7, 2, 7 });
-//    search_server.AddDocument(2, "ухоженный пёс выразительные глаза"s, DocumentStatus::ACTUAL, { 5, -12, 2, 1 });
-//    search_server.AddDocument(3, "ухоженный скворец евгений"s, DocumentStatus::BANNED, { 9 });
-//
-//    cout << "ACTUAL by default:"s << endl;
-//    for (const Document& document : search_server.FindTopDocuments("пушистый ухоженный кот"s)) {
-//        PrintDocument(document);
-//    }
-//
-//    cout << "BANNED:"s << endl;
-//    for (const Document& document : search_server.FindTopDocuments("пушистый ухоженный кот"s, DocumentStatus::BANNED)) {
-//        PrintDocument(document);
-//    }
-//
-//    cout << "Even ids:"s << endl;
-//    for (const Document& document : search_server.FindTopDocuments("пушистый ухоженный кот"s, [](int document_id, DocumentStatus status, int rating) { return document_id % 2 == 0; })) {
-//        PrintDocument(document);
-//    }
-//
-//    return 0;
-//}

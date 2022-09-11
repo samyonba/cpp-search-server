@@ -4,21 +4,11 @@
 
 class RequestQueue {
 public:
-    explicit RequestQueue(const SearchServer& search_server)
-        : server_(search_server) {
-        // напишите реализацию
-    }
+    explicit RequestQueue(const SearchServer& search_server);
 
-    // сделаем "обёртки" для всех методов поиска, чтобы сохранять результаты для нашей статистики
+    // "обёртки" для всех методов поиска, чтобы хранить результаты для статистики
     template <typename DocumentPredicate>
-    std::vector<Document> AddFindRequest(const std::string& raw_query, DocumentPredicate document_predicate) {
-        QueryResult query_result{};
-        auto documents = server_.FindTopDocuments(raw_query, document_predicate);
-        query_result.documents_count = documents.size();
-        ProcessQueryResult(query_result);
-
-        return documents;
-    }
+    std::vector<Document> AddFindRequest(const std::string& raw_query, DocumentPredicate document_predicate);
 
     std::vector<Document> AddFindRequest(const std::string& raw_query, DocumentStatus status);
 
@@ -28,7 +18,7 @@ public:
 
 private:
     struct QueryResult {
-        size_t documents_count;
+        size_t documents_count = 0;
 
         bool IsNullRequest() const;
     };
@@ -44,3 +34,13 @@ private:
 private:
     void ProcessQueryResult(const QueryResult& query_result);
 };
+
+template <typename DocumentPredicate>
+std::vector<Document> RequestQueue::AddFindRequest(const std::string& raw_query, DocumentPredicate document_predicate) {
+    QueryResult query_result{};
+    auto documents = server_.FindTopDocuments(raw_query, document_predicate);
+    query_result.documents_count = documents.size();
+    ProcessQueryResult(query_result);
+
+    return documents;
+}

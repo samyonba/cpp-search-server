@@ -2,6 +2,11 @@
 
 using namespace std;
 
+RequestQueue::RequestQueue(const SearchServer& search_server)
+    : server_(search_server) {
+
+}
+
 vector<Document> RequestQueue::AddFindRequest(const string& raw_query, DocumentStatus status) {
     QueryResult query_result{};
     auto documents = server_.FindTopDocuments(raw_query, status);

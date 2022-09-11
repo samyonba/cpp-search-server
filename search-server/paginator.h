@@ -54,13 +54,6 @@ public:
         if (added_docs_count < total_docs_count) {
             pages_.push_back({ begin, end });
         }
-        /*while (next(begin, page_size) <= end) {
-            pages_.push_back({ begin, next(begin, page_size) });
-            advance(begin, page_size);
-        }
-        if (begin != end) {
-            pages_.push_back({ begin, end });
-        }*/
     }
 
     auto begin() const {

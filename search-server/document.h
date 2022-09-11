@@ -21,5 +21,3 @@ enum class DocumentStatus
 };
 
 std::ostream& operator<< (std::ostream& output, const Document& document);
-
-void PrintDocument(const Document& document);

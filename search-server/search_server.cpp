@@ -56,8 +56,7 @@ vector<Document> SearchServer::FindTopDocuments(const string& raw_query, Documen
 }
 
 vector<Document> SearchServer::FindTopDocuments(const string& raw_query) const {
-    return FindTopDocuments(raw_query,
-        [](int document_id, DocumentStatus status, int rating) {return status == DocumentStatus::ACTUAL; });
+    return FindTopDocuments(raw_query, DocumentStatus::ACTUAL);
 }
 
 tuple<vector<string>, DocumentStatus> SearchServer::MatchDocument(const string& raw_query, int document_id) const {
@@ -67,27 +66,34 @@ tuple<vector<string>, DocumentStatus> SearchServer::MatchDocument(const string& 
 
     set<string> matched_plus_words;
 
-    // throws invalid_argument exception
-    Query parsed_query = ParseQuery(raw_query);
+	try
+	{
+		Query parsed_query = ParseQuery(raw_query);
 
-    for (const string& plus_word : parsed_query.plus_words) {
-        if (word_to_documents_freqs_.count(plus_word)) {
-            if (word_to_documents_freqs_.at(plus_word).count(document_id)) {
-                matched_plus_words.insert(plus_word);
-            }
-        }
-    }
-    for (string minus_word : parsed_query.minus_words) {
-        if (word_to_documents_freqs_.count(minus_word)) {
-            if (word_to_documents_freqs_.at(minus_word).count(document_id)) {
-                matched_plus_words.clear();
-                break;
-            }
-        }
-    }
-    vector<string> matched_plus_words_v(matched_plus_words.begin(), matched_plus_words.end());
-    sort(matched_plus_words_v.begin(), matched_plus_words_v.end());
-    return { matched_plus_words_v, documents_data_.at(document_id).status };
+		for (const string& plus_word : parsed_query.plus_words) {
+			if (word_to_documents_freqs_.count(plus_word)) {
+				if (word_to_documents_freqs_.at(plus_word).count(document_id)) {
+					matched_plus_words.insert(plus_word);
+				}
+			}
+		}
+		for (string minus_word : parsed_query.minus_words) {
+			if (word_to_documents_freqs_.count(minus_word)) {
+				if (word_to_documents_freqs_.at(minus_word).count(document_id)) {
+					matched_plus_words.clear();
+					break;
+				}
+			}
+		}
+		vector<string> matched_plus_words_v(matched_plus_words.begin(), matched_plus_words.end());
+		sort(matched_plus_words_v.begin(), matched_plus_words_v.end());
+		return { matched_plus_words_v, documents_data_.at(document_id).status };
+	}
+	catch (const invalid_argument& e)
+	{
+		cout << e.what() << endl;
+		return {};
+	}
 }
 
 int SearchServer::GetDocumentId(int index) const {
@@ -187,7 +193,7 @@ void FindTopDocuments(const SearchServer& search_server, const string& raw_query
     cout << "Результаты поиска по запросу: "s << raw_query << endl;
     try {
         for (const Document& document : search_server.FindTopDocuments(raw_query)) {
-            PrintDocument(document);
+            cout << document << endl;
         }
     }
     catch (const exception& e) {

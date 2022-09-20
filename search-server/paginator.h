@@ -30,8 +30,7 @@ private:
 
 template<typename Iterator>
 std::ostream& operator<< (std::ostream& output, const IteratorRange<Iterator>& range) {
-    auto range_end = range.end();
-    for (Iterator it = range.begin(); it != range_end; ++it)
+    for (Iterator it = range.begin(); it != range.end(); ++it)
     {
         output << *it;
     }

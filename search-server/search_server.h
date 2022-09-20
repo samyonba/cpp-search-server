@@ -8,6 +8,7 @@
 #include <set>
 #include "read_input_functions.h"
 #include <cmath>
+#include <algorithm>
 
 const int MAX_RESULT_DOCUMENT_COUNT = 5;
 
@@ -39,7 +40,21 @@ public:
 
     std::tuple<std::vector<std::string>, DocumentStatus> MatchDocument(const std::string& raw_query, int document_id) const;
 
-    int GetDocumentId(int index) const;
+    // итератор на начало вектора id всех документов
+    auto begin() const {
+        return added_documents_id_.cbegin();
+    }
+
+    // итератор на конец вектора id всех документов
+    auto end() const {
+        return added_documents_id_.cend();
+    }
+
+    // получение частот слов по id документа
+    const std::map<std::string, double>& GetWordFrequencies(int document_id) const;
+
+    // удаление документа по id
+    void RemoveDocument(int document_id);
 
 private:
 
@@ -54,18 +69,21 @@ private:
         int rating = 0;
     };
 
-    // word -> document_id -> TF
+    // word -> [ document_id, TF ]
     std::map<std::string, std::map<int, double>> word_to_documents_freqs_;
+
+    // id -> [ word, TF ]
+    std::map<int, std::map<std::string, double>> document_to_words_freqs_;
 
     // соответствие id -> status, rating
     std::map<int, DocumentData> documents_data_;
 
     std::set<std::string> stop_words_;
 
-    size_t documents_count_ = 0;
-
     // хранит id документов в порядке добавления пользователем;
     std::vector<int> added_documents_id_;
+
+private:
 
     bool IsStopWord(const std::string& word) const;
 
@@ -110,7 +128,7 @@ std::vector<Document> SearchServer::FindAllDocuments(const Query& parsed_query, 
 
     for (const string& plus_word : parsed_query.plus_words) {
         if (word_to_documents_freqs_.count(plus_word)) {
-            double word_idf = log(static_cast<double>(documents_count_) / word_to_documents_freqs_.at(plus_word).size());
+            double word_idf = log(static_cast<double>(added_documents_id_.size()) / word_to_documents_freqs_.at(plus_word).size());
             for (const auto& [document_id, term_freq] : word_to_documents_freqs_.at(plus_word)) {
                 const auto& current_document_data = documents_data_.at(document_id);
                 if (requirement(document_id, current_document_data.status, current_document_data.rating))
@@ -139,28 +157,20 @@ std::vector<Document> SearchServer::FindTopDocuments(const std::string& raw_quer
 	using namespace std;
 
 	// throws invalid_argument exception
-	try
-	{
-		Query parsed_query = ParseQuery(raw_query);
-		auto matched_documents = FindAllDocuments(parsed_query, requirement);
+	Query parsed_query = ParseQuery(raw_query);
+	auto matched_documents = FindAllDocuments(parsed_query, requirement);
 
-		sort(matched_documents.begin(), matched_documents.end(),
-			[](const Document& lhs, const Document& rhs) {
-				return lhs.relevance > rhs.relevance ||
-					(abs(lhs.relevance - rhs.relevance) < EPSILON && lhs.rating > rhs.rating);
-			});
+	sort(matched_documents.begin(), matched_documents.end(),
+		[](const Document& lhs, const Document& rhs) {
+			return lhs.relevance > rhs.relevance ||
+				(abs(lhs.relevance - rhs.relevance) < EPSILON && lhs.rating > rhs.rating);
+		});
 
-		if (matched_documents.size() > MAX_RESULT_DOCUMENT_COUNT) {
-			matched_documents.resize(MAX_RESULT_DOCUMENT_COUNT);
-		}
-
-		return matched_documents;
+	if (matched_documents.size() > MAX_RESULT_DOCUMENT_COUNT) {
+		matched_documents.resize(MAX_RESULT_DOCUMENT_COUNT);
 	}
-	catch (const invalid_argument& e)
-	{
-		cout << e.what() << endl;
-		return {};
-	}
+
+	return matched_documents;
 }
 
 void PrintMatchDocumentResult(int document_id, const std::vector<std::string>& words, DocumentStatus status);
@@ -171,86 +181,3 @@ void AddDocument(SearchServer& search_server, int document_id, const std::string
 void FindTopDocuments(const SearchServer& search_server, const std::string& raw_query);
 
 void MatchDocuments(const SearchServer& search_server, const std::string& query);
-
-
-
-
-
-// Тестирование ==================================================================================
-
-void AssertImpl(bool value, const std::string& value_str, const std::string& hint, const std::string& file,
-    uint32_t line, const std::string& function);
-
-#define ASSERT(a) AssertImpl((a), #a, ""s, __FILE__, __LINE__, __FUNCTION__)
-
-#define ASSERT_HINT(a, hint) AssertImpl((a), #a, (hint), __FILE__, __LINE__, __FUNCTION__)
-
-template <typename T, typename U>
-void AssertEqualImpl(const T& t, const U& u, const std::string& t_str, const std::string& u_str, const std::string& file,
-    const std::string& func, unsigned line, const std::string& hint) {
-
-    using namespace std;
-
-    if (t != u) {
-        cout << boolalpha;
-        cout << file << "("s << line << "): "s << func << ": "s;
-        cout << "ASSERT_EQUAL("s << t_str << ", "s << u_str << ") failed: "s;
-        cout << t << " != "s << u << "."s;
-        if (!hint.empty()) {
-            cout << " Hint: "s << hint;
-        }
-        cout << endl;
-        abort();
-    }
-}
-
-#define ASSERT_EQUAL(a, b) AssertEqualImpl((a), (b), #a, #b, __FILE__, __FUNCTION__, __LINE__, ""s)
-
-#define ASSERT_EQUAL_HINT(a, b, hint) AssertEqualImpl((a), (b), #a, #b, __FILE__, __FUNCTION__, __LINE__, (hint))
-
-template <typename T>
-void RunTestImpl(const T& func, const std::string& func_name) {
-
-    using namespace std;
-    func();
-    //cerr << func_name << " OK"s << endl;
-    cout << func_name << " OK"s << endl;
-}
-
-#define RUN_TEST(func) RunTestImpl((func), #func);
-
-// Тест проверяет, что после добавления документ можно найти корректным запросом, пустой документ не находится, пустой запрос не находит документ
-void TestAddedDocumentCanBeFoundWithCorrectQuery();
-
-// Тест проверяет, что поисковая система исключает стоп-слова при добавлении документов
-void TestExcludeStopWordsFromAddedDocumentContent();
-
-// Тест проверяет, что документы, содержащие минус-слова, исключаются из результатов поиска
-void TestExcludeDocumentsWithMinusWordsFromResult();
-
-/* Тест проверяет, что при матчинге документа возвращаются все слова из запроса, присутствующие в документе
-При наличии минус-слова возвращается пустой список слов */
-void TestMatchDocumentReturnsCorrectWords();
-
-/* Тест проверяет, что найденные документы упорядочены по убыванию релевантности
-  Если релевантность совпадает, сортировка по рейтингу */
-void TestFoundDocumentsSortedByDescending();
-
-/* Тест проверяет, что рейтинг добавленного документа равен среднему арифметическому оценок
-  Если оценок нет, рейтинг равен нулю */
-void TestComputeRatingOfAddedDocument();
-
-// Тест проверяет, что корректно осуществляется поиск документов с заданным статусом
-void TestFindDocumentsWithSpecificStatus();
-
-// Тест проверяет поиск документов по заданному пользовательским предикатом фильтру
-void TestFindDocumentsWithUserPredicate();
-
-// Тест проверяет правильность расчета релевантности по TF-IDF
-void TestComputeRelevanceTermFreqIdf();
-
-void TestSearchServerStringConstructor();
-
-void TestSearchServerStringCollectionConstructor();
-
-void TestSearchServer();

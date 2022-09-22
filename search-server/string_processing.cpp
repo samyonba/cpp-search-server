@@ -3,7 +3,7 @@
 
 using namespace std;
 
-// преобразует строку в вектор слов, проводя их к нижнему регистру
+// преобразует строку в вектор слов, приводя их к нижнему регистру
 vector<string> SplitIntoWords(const string& text) {
     vector<string> words;
     string word;
@@ -23,15 +23,4 @@ vector<string> SplitIntoWords(const string& text) {
     }
 
     return words;
-}
-
-// A valid text must not contain special characters
-bool IsValidText(const string& text) {
-    return none_of(text.begin(), text.end(), [](char c) {
-        return c >= '\0' && c < ' ';
-        });
-}
-
-bool ContainsDoubleDash(const string& text) {
-    return (text.find("--"s) != string::npos);
 }

@@ -26,9 +26,12 @@ public:
     }
 
 private:
+
     // В переменной будет время конструирования объекта LogDuration
     const std::chrono::steady_clock::time_point start_time_ = std::chrono::steady_clock::now();
+
     const std::string title_;
+
     std::ostream& output = std::cerr;
 };
 

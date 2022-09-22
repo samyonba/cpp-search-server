@@ -5,6 +5,7 @@
 #include <vector>
 
 using namespace std;
+
 // Тестирование ==================================================================================
 
 void AssertImpl(bool value, const string& value_str, const string& hint, const string& file, uint32_t line, const string& function) {
@@ -64,6 +65,7 @@ void TestExcludeStopWordsFromAddedDocumentContent() {
     const int doc_id = 42;
     const string content = "cat in the city"s;
     const vector<int> ratings = { 1, 2, 3 };
+
     // Сначала убеждаемся, что поиск слова, не входящего в список стоп-слов,
     // находит нужный документ
     {
@@ -203,6 +205,7 @@ void TestFoundDocumentsSortedByDescending() {
         ASSERT_EQUAL(found_documents.size(), 3u);
         ASSERT(found_documents[0].relevance > found_documents[1].relevance
             || ((found_documents[0].relevance == found_documents[1].relevance) && (found_documents[0].rating >= found_documents[1].rating)));
+
         // в данном случае при равной релевантности выполнится сортировка по рейтингу для документов [1] и [2]
         ASSERT(found_documents[1].relevance > found_documents[2].relevance
             || ((found_documents[1].relevance == found_documents[2].relevance) && (found_documents[1].rating >= found_documents[2].rating)));
@@ -464,6 +467,7 @@ void TestRemoveDocument() {
     for (const auto document_id : server) {
         ASSERT_EQUAL(document_id, correct_id[index++]);
     }
+
     server.RemoveDocument(2);
     correct_id = { 1, 3 };
     index = 0;

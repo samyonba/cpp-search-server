@@ -8,7 +8,7 @@ RequestQueue::RequestQueue(const SearchServer& search_server)
 }
 
 vector<Document> RequestQueue::AddFindRequest(const string& raw_query, DocumentStatus status) {
-    QueryResult query_result{};
+    QueryResult query_result;
     auto documents = server_.FindTopDocuments(raw_query, status);
     query_result.documents_count = documents.size();
     ProcessQueryResult(query_result);
@@ -17,7 +17,7 @@ vector<Document> RequestQueue::AddFindRequest(const string& raw_query, DocumentS
 }
 
 vector<Document> RequestQueue::AddFindRequest(const string& raw_query) {
-    QueryResult query_result{};
+    QueryResult query_result;
     auto documents = server_.FindTopDocuments(raw_query);
     query_result.documents_count = documents.size();
     ProcessQueryResult(query_result);

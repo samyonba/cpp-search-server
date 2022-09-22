@@ -6,11 +6,12 @@
 using namespace std;
 
 SearchServer::SearchServer(const std::string& stop_words_text) {
-    if (!IsValidText(stop_words_text))
-        throw invalid_argument("Stop words passed when creating SearchServer contain special characters"s);
-    if (ContainsDoubleDash(stop_words_text))
-        throw invalid_argument("Stop words passed when creating SearchServer contain double dash"s);
-    SetStopWords(stop_words_text);
+	if (!IsValidText(stop_words_text))
+	{
+		throw invalid_argument("Stop words passed when creating SearchServer contain special characters"s);
+	}
+	
+	SetStopWords(stop_words_text);
 }
 
 size_t SearchServer::GetDocumentCount() const {
@@ -18,41 +19,51 @@ size_t SearchServer::GetDocumentCount() const {
 }
 
 void SearchServer::AddDocument(int document_id, const std::string& document, DocumentStatus status, const vector<int>& ratings) {
-    // попытка добавить документ с отрицаиельным id
-    if (document_id < 0)
-        throw invalid_argument("Document id is negative"s);
-    // попытка добавить документ с id, совпадающим с id документа, который добавился ранее
-    if (documents_data_.count(document_id))
-        throw invalid_argument("Given document id already matches to previous added document"s);
-    // текст документа содержит спецсимволы
-    if (!IsValidText(document))
-        throw invalid_argument("Document text contains special characters"s);
 
-    vector<string> document_words = SplitIntoWordsNoStop(document);
+	// попытка добавить документ с отрицаиельным id
+	if (document_id < 0)
+    {
+		throw invalid_argument("Document id is negative"s);
+	}
 
-    // текст документа не должен содержать слов, начинающихся с '-'
-    if (any_of(document_words.begin(), document_words.end(), MatchedAsMinusWord))
-        throw invalid_argument("Document text contains a word starting with minus"s);
+	// попытка добавить документ с id, совпадающим с id документа,добавленного ранее
+	if (added_documents_id_.count(document_id))
+    {
+		throw invalid_argument("Given document id already matches to previous added document"s);
+	}
 
-    added_documents_id_.push_back(document_id);
-    documents_data_[document_id] = { status, ComputeAverageRating(ratings) };
-    for (const string& word : document_words) {
-        double word_term_freq = static_cast<double>(count(document_words.begin(), document_words.end(), word)) / document_words.size();
-        word_to_documents_freqs_[word].insert({ document_id, word_term_freq });
-        document_to_words_freqs_[document_id].insert({ word, word_term_freq });
-    }
+	// текст документа содержит спецсимволы
+	if (!IsValidText(document))
+    {
+		throw invalid_argument("Document text contains special characters"s);
+	}
+
+	vector<string> document_words = SplitIntoWordsNoStop(document);
+
+	added_documents_id_.insert(document_id);
+    auto document_rating = ComputeAverageRating(ratings);
+	documents_data_[document_id] = { status, document_rating };
+
+	for (const string& word : document_words) {
+        double freq_increase = 1. / document_words.size();
+
+        word_to_documents_freqs_[word][document_id] += freq_increase;
+        document_to_words_freqs_[document_id][word] += freq_increase;
+	}
 }
 
 void SearchServer::SetStopWords(const string& text) {
-    for (const string& word : SplitIntoWords(text)) {
+    for (const string& word : SplitIntoWords(text))
+    {
         stop_words_.insert(word);
     }
 }
 
 vector<Document> SearchServer::FindTopDocuments(const string& raw_query, DocumentStatus required_status) const {
 
-    return FindTopDocuments(raw_query,
-        [required_status](int document_id, DocumentStatus doc_status, int rating) {return doc_status == required_status; });
+	return FindTopDocuments(raw_query,
+		[required_status](int document_id, DocumentStatus doc_status, int rating)
+		{return doc_status == required_status; });
 }
 
 vector<Document> SearchServer::FindTopDocuments(const string& raw_query) const {
@@ -62,7 +73,9 @@ vector<Document> SearchServer::FindTopDocuments(const string& raw_query) const {
 tuple<vector<string>, DocumentStatus> SearchServer::MatchDocument(const string& raw_query, int document_id) const {
     // попытка матчинга документа по несуществующему id
 	if (!documents_data_.count(document_id))
-		throw invalid_argument("No document with given id"s);
+    {
+        throw invalid_argument("No document with given id"s);
+    }
 
 	set<string> matched_plus_words;
 
@@ -88,32 +101,46 @@ tuple<vector<string>, DocumentStatus> SearchServer::MatchDocument(const string& 
 	return { matched_plus_words_v, documents_data_.at(document_id).status };
 }
 
-const map<string, double> NULL_RESULT;
+std::set<int>::const_iterator SearchServer::begin() const {
+    return added_documents_id_.cbegin();
+}
+
+std::set<int>::const_iterator SearchServer::end() const {
+    return added_documents_id_.cend();
+}
 
 // получение частот слов по id документа
 const map<string, double>& SearchServer::GetWordFrequencies(int document_id) const
 {
+    static const map<string, double> NULL_RESULT;
+
     if (document_to_words_freqs_.count(document_id))
+    {
         return document_to_words_freqs_.at(document_id);
-    else {
-        return NULL_RESULT;
     }
+    
+    return NULL_RESULT;
 }
 
 void SearchServer::RemoveDocument(int document_id)
 {
-    added_documents_id_.erase(find(added_documents_id_.begin(), added_documents_id_.end(), document_id));
+    // удаляем id документа
+    added_documents_id_.erase(document_id);
+
+    // удаляем данные о статусе и рейтинге документа
     documents_data_.erase(documents_data_.find(document_id));
-    document_to_words_freqs_.erase(document_to_words_freqs_.find(document_id));
-    for (auto& [word, id_tf] : word_to_documents_freqs_) {
-        auto it = id_tf.find(document_id);
-        if (it != id_tf.end())
-            id_tf.erase(it);
+    
+    // проходим по всем словам документа, удаляя id документа из соответствующих записей в word_to_documents_freqs_
+    for (auto& [word, term_freq] : document_to_words_freqs_[document_id]) {
+        word_to_documents_freqs_[word].erase(document_id);
     }
+
+    // только после этого можно удалить данные о словах в документе
+    document_to_words_freqs_.erase(document_id);
 }
 
 bool SearchServer::IsStopWord(const string& word) const {
-    return stop_words_.count(word) > 0;
+    return (stop_words_.count(word) > 0);
 }
 
 vector<string> SearchServer::SplitIntoWordsNoStop(const string& text) const {
@@ -126,49 +153,82 @@ vector<string> SearchServer::SplitIntoWordsNoStop(const string& text) const {
     return words;
 }
 
+// A valid text must not contain special characters
+bool SearchServer::IsValidText(const string& text) const {
+    return none_of(text.begin(), text.end(), [](char c) {
+        return c >= '\0' && c < ' ';
+        });
+}
+
 // переданная строка начинается с '-'
 bool SearchServer::MatchedAsMinusWord(const string& word) {
     if (word.empty())
+    {
         return false;
-    return word.at(0) == '-';
+    }
+
+    return (word.at(0) == '-');
+}
+
+void SearchServer::ParseQueryWord(const string& word, Query& query) const {
+
+    // запрос не должен содержать спецсимволов
+    if (!IsValidText(word))
+    {
+        throw invalid_argument("Query contains special characters"s);
+    }
+
+    if (MatchedAsMinusWord(word))
+    {
+
+        // после символа '-' отсутствет текст минус слова
+        if (word.size() == 1)
+        {
+            throw invalid_argument("Text is missing after minus in query"s);
+        }
+
+        string no_prefix_word = word.substr(1);
+
+        // если после удаления из начала слова символа '-', в начале слова всё ещё стоит '-', запрос построен неверно
+        if (MatchedAsMinusWord(no_prefix_word))
+        {
+            throw invalid_argument("Query contains double dash"s);
+        }
+
+        query.minus_words.insert(no_prefix_word);
+
+        // если такое слово ранее добавлялось как plus_word, теперь его нужно удалить
+        query.plus_words.erase(no_prefix_word);
+    }
+    else if (query.minus_words.count(word) == 0)
+    {
+        query.plus_words.insert(word);
+    }
 }
 
 SearchServer::Query SearchServer::ParseQuery(const string& text) const {
-    // запрос не должен содержать слов, содержащих более одного '-' подряд
-    if (ContainsDoubleDash(text))
-        throw invalid_argument("Query contains double dash"s);
-    // запрос не должен содержать спецсимволов
-    if (!IsValidText(text))
-        throw invalid_argument("Query contains special characters"s);
 
     Query query;
+
     for (const string& word : SplitIntoWordsNoStop(text)) {
-        if (MatchedAsMinusWord(word)) {
-            // после символа '-' отсутствет текст минус слова
-            if (word.size() == 1) {
-                throw invalid_argument("Text is missing after minus in query"s);
-            }
-            string no_prefix_word = word.substr(1);
-            query.minus_words.insert(no_prefix_word);
-            // если такое слово ранее добавлялось как plus_word, теперь его нужно удалить
-            query.plus_words.erase(no_prefix_word);
-        }
-        else if (!query.minus_words.count(word)) {
-            query.plus_words.insert(word);
-        }
+        ParseQueryWord(word, query);
     }
+
     return query;
 }
 
 int SearchServer::ComputeAverageRating(const vector<int>& ratings) {
     if (ratings.empty())
+    {
         return 0;
+    }
 
     return accumulate(ratings.begin(), ratings.end(), 0) / static_cast<int>(ratings.size());
 }
 
 int SearchServer::GetDocumentRating(int document_id) const {
-    if (documents_data_.count(document_id)) {
+    if (documents_data_.count(document_id))
+    {
         return documents_data_.at(document_id).rating;
     }
 

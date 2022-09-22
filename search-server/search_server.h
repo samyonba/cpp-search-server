@@ -18,12 +18,10 @@ class SearchServer {
 
 public:
 
-    SearchServer() = default;
-
-    explicit SearchServer(const std::string& stop_words_text);
-
     template<typename StringCollection>
     explicit SearchServer(const StringCollection& stop_words);
+    explicit SearchServer(const std::string& stop_words_text);
+    SearchServer() = default;
 
     size_t GetDocumentCount() const;
 
@@ -33,22 +31,16 @@ public:
 
     template <typename Requirement>
     std::vector<Document> FindTopDocuments(const std::string& raw_query, Requirement requirement) const;
-
     std::vector<Document> FindTopDocuments(const std::string& raw_query, DocumentStatus required_status) const;
-
     std::vector<Document> FindTopDocuments(const std::string& raw_query) const;
 
     std::tuple<std::vector<std::string>, DocumentStatus> MatchDocument(const std::string& raw_query, int document_id) const;
 
     // итератор на начало вектора id всех документов
-    auto begin() const {
-        return added_documents_id_.cbegin();
-    }
+    std::set<int>::const_iterator begin() const;
 
     // итератор на конец вектора id всех документов
-    auto end() const {
-        return added_documents_id_.cend();
-    }
+    std::set<int>::const_iterator end() const;
 
     // получение частот слов по id документа
     const std::map<std::string, double>& GetWordFrequencies(int document_id) const;
@@ -69,6 +61,9 @@ private:
         int rating = 0;
     };
 
+    // хранит id документов в порядке добавления пользователем;
+    std::set<int> added_documents_id_;
+
     // word -> [ document_id, TF ]
     std::map<std::string, std::map<int, double>> word_to_documents_freqs_;
 
@@ -80,9 +75,6 @@ private:
 
     std::set<std::string> stop_words_;
 
-    // хранит id документов в порядке добавления пользователем;
-    std::vector<int> added_documents_id_;
-
 private:
 
     bool IsStopWord(const std::string& word) const;
@@ -93,8 +85,13 @@ private:
     template <typename Requirement>
     std::vector<Document> FindAllDocuments(const Query& parsed_query, Requirement requirement) const;
 
+    // A valid text must not contain special characters
+    bool IsValidText(const std::string& text) const;
+
     // переданная строка начинается с '-'
     static bool MatchedAsMinusWord(const std::string& word);
+
+    void ParseQueryWord(const std::string& word, Query& query) const;
 
     //преобразует строку-запрос в структуру {плюс-слов, минус-слов}
     Query ParseQuery(const std::string& text) const;
@@ -112,9 +109,9 @@ SearchServer::SearchServer(const StringCollection& stop_words)
 
     for (const string& word : stop_words_) {
         if (!IsValidText(word))
+        {
             throw invalid_argument("Stop word contains special characters"s);
-        if (ContainsDoubleDash(word))
-            throw invalid_argument("Stop word contains double dash"s);
+        }
     }
 }
 
@@ -124,20 +121,26 @@ std::vector<Document> SearchServer::FindAllDocuments(const Query& parsed_query, 
     using namespace std;
 
     vector<Document> matched_documents;
-    map<int, double> document_term_freq_idf_relevance; // [id, relevance]
+
+    // [id, relevance]
+    map<int, double> document_term_freq_idf_relevance;
 
     for (const string& plus_word : parsed_query.plus_words) {
-        if (word_to_documents_freqs_.count(plus_word)) {
+        if (word_to_documents_freqs_.count(plus_word))
+        {
             double word_idf = log(static_cast<double>(added_documents_id_.size()) / word_to_documents_freqs_.at(plus_word).size());
             for (const auto& [document_id, term_freq] : word_to_documents_freqs_.at(plus_word)) {
                 const auto& current_document_data = documents_data_.at(document_id);
                 if (requirement(document_id, current_document_data.status, current_document_data.rating))
+                {
                     document_term_freq_idf_relevance[document_id] += word_idf * term_freq;
+                }
             }
         }
     }
     for (string minus_word : parsed_query.minus_words) {
-        if (word_to_documents_freqs_.count(minus_word)) {
+        if (word_to_documents_freqs_.count(minus_word))
+        {
             for (const auto& [document_id, term_freq] : word_to_documents_freqs_.at(minus_word)) {
                 document_term_freq_idf_relevance.erase(document_id);
             }
@@ -158,6 +161,7 @@ std::vector<Document> SearchServer::FindTopDocuments(const std::string& raw_quer
 
 	// throws invalid_argument exception
 	Query parsed_query = ParseQuery(raw_query);
+
 	auto matched_documents = FindAllDocuments(parsed_query, requirement);
 
 	sort(matched_documents.begin(), matched_documents.end(),
@@ -175,8 +179,8 @@ std::vector<Document> SearchServer::FindTopDocuments(const std::string& raw_quer
 
 void PrintMatchDocumentResult(int document_id, const std::vector<std::string>& words, DocumentStatus status);
 
-void AddDocument(SearchServer& search_server, int document_id, const std::string& document, DocumentStatus status,
-    const std::vector<int>& ratings);
+void AddDocument(SearchServer& search_server, int document_id, const std::string& document,
+    DocumentStatus status, const std::vector<int>& ratings);
 
 void FindTopDocuments(const SearchServer& search_server, const std::string& raw_query);
 

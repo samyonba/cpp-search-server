@@ -3,12 +3,10 @@
 #include <string>
 #include "document.h"
 
+void TestSearchServer();
+
 void AssertImpl(bool value, const std::string& value_str, const std::string& hint, const std::string& file,
     uint32_t line, const std::string& function);
-
-#define ASSERT(a) AssertImpl((a), #a, ""s, __FILE__, __LINE__, __FUNCTION__)
-
-#define ASSERT_HINT(a, hint) AssertImpl((a), #a, (hint), __FILE__, __LINE__, __FUNCTION__)
 
 template <typename T, typename U>
 void AssertEqualImpl(const T& t, const U& u, const std::string& t_str, const std::string& u_str, const std::string& file,
@@ -16,7 +14,8 @@ void AssertEqualImpl(const T& t, const U& u, const std::string& t_str, const std
 
     using namespace std;
 
-    if (t != u) {
+    if (t != u)
+    {
         cerr << boolalpha;
         cerr << file << "("s << line << "): "s << func << ": "s;
         cerr << "ASSERT_EQUAL("s << t_str << ", "s << u_str << ") failed: "s;
@@ -29,19 +28,21 @@ void AssertEqualImpl(const T& t, const U& u, const std::string& t_str, const std
     }
 }
 
-#define ASSERT_EQUAL(a, b) AssertEqualImpl((a), (b), #a, #b, __FILE__, __FUNCTION__, __LINE__, ""s)
-
-#define ASSERT_EQUAL_HINT(a, b, hint) AssertEqualImpl((a), (b), #a, #b, __FILE__, __FUNCTION__, __LINE__, (hint))
-
 template <typename T>
 void RunTestImpl(const T& func, const std::string& func_name) {
 
     using namespace std;
+
     func();
-    //cerr << func_name << " OK"s << endl;
     cerr << func_name << " OK"s << endl;
 }
 
-#define RUN_TEST(func) RunTestImpl((func), #func);
+#define ASSERT(a) AssertImpl((a), #a, ""s, __FILE__, __LINE__, __FUNCTION__)
 
-void TestSearchServer();
+#define ASSERT_HINT(a, hint) AssertImpl((a), #a, (hint), __FILE__, __LINE__, __FUNCTION__)
+
+#define ASSERT_EQUAL(a, b) AssertEqualImpl((a), (b), #a, #b, __FILE__, __FUNCTION__, __LINE__, ""s)
+
+#define ASSERT_EQUAL_HINT(a, b, hint) AssertEqualImpl((a), (b), #a, #b, __FILE__, __FUNCTION__, __LINE__, (hint))
+
+#define RUN_TEST(func) RunTestImpl((func), #func);

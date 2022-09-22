@@ -5,7 +5,6 @@
 #include <map>
 #include <iostream>
 
-
 std::string ReadLine();
 
 int ReadLineWithNumber();
@@ -21,7 +20,9 @@ std::ostream& operator<< (std::ostream& output, const std::vector<T>& container)
     bool is_first = true;
     for (const T& elem : container) {
         if (!is_first)
+        {
             output << ',';
+        }
         output << ' ' << elem;
         is_first = false;
     }
@@ -41,7 +42,9 @@ std::ostream& operator<< (std::ostream& os, std::set<T> container) {
             os << ", "s << elem;
         }
         else
+        {
             os << elem;
+        }
         is_first = false;
     }
     os << '}';
@@ -60,7 +63,9 @@ std::ostream& operator<< (std::ostream& os, std::map<K, V> container) {
             os << ", "s << key << ": "s << value;
         }
         else
+        {
             os << key << ": "s << value;
+        }
         is_first = false;
     }
     os << '}';

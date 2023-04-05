@@ -1,4 +1,5 @@
 #include "remove_duplicates.h"
+
 #include <vector>
 #include <set>
 #include <algorithm>
@@ -11,7 +12,7 @@ using namespace std;
 // id документа и соответствующее ему множество слов
 struct DocumentUniqueWords {
     int document_id;
-    set<string> unique_words;
+    set<string_view> unique_words;
 };
 
 // сравнение структур DocumentUniqueWords для использования в std::set
@@ -27,7 +28,7 @@ void RemoveDuplicates(SearchServer& search_server)
     
     for (size_t i = 0; i < search_server.GetDocumentCount(); ) {
         int document_id = *(next(search_server.begin(), i));
-        set<string> current_doc_unique_words;
+        set<string_view> current_doc_unique_words;
         const auto& doc_freqs = search_server.GetWordFrequencies(document_id);
 
         for (const auto& [word, freq] : doc_freqs) {

@@ -1,5 +1,7 @@
 #pragma once
+
 #include "search_server.h"
+
 #include <deque>
 
 class RequestQueue {

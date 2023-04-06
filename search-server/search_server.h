@@ -20,13 +20,14 @@ const int MAX_RESULT_DOCUMENT_COUNT = 5;
 
 const double EPSILON = 1e-6;
 
+using MatchDocumentData = std::tuple<std::vector<std::string_view>, DocumentStatus>;
+
 class SearchServer {
 
 public:
 
     template<typename StringCollection>
     explicit SearchServer(const StringCollection& stop_words);
-    
     explicit SearchServer(const std::string& stop_words_text);
     explicit SearchServer(const std::string_view stop_words_text);
 
@@ -36,32 +37,24 @@ public:
 
     void AddDocument(int document_id, std::string_view document, DocumentStatus status, const std::vector<int>& ratings);
 
-    void SetStopWords(const std::string_view text);
+	void SetStopWords(const std::string_view text);
 
-    template <typename Requirement>
-    std::vector<Document> FindTopDocuments(const std::string_view raw_query, Requirement requirement) const;
+	template <typename Requirement>
+	std::vector<Document> FindTopDocuments(const std::string_view raw_query, Requirement requirement) const;
+	template <typename Policy, typename Requirement>
+	std::vector<Document> FindTopDocuments(const Policy& policy, const std::string_view raw_query, Requirement requirement) const;
+	std::vector<Document> FindTopDocuments(const std::string_view raw_query, DocumentStatus required_status) const;
+	template <typename Policy>
+	std::vector<Document> FindTopDocuments(const Policy& policy, const std::string_view raw_query, DocumentStatus required_status) const;
+	std::vector<Document> FindTopDocuments(const std::string_view raw_query) const;
+	template <typename Policy>
+	std::vector<Document> FindTopDocuments(const Policy& policy, const std::string_view raw_query) const;
 
-    template <typename Requirement>
-    std::vector<Document> FindTopDocuments(const std::execution::sequenced_policy&, const std::string_view raw_query, Requirement requirement) const;
+    MatchDocumentData MatchDocument(const std::string_view raw_query, int document_id) const;
+    MatchDocumentData MatchDocument(const std::execution::sequenced_policy&, const std::string_view raw_query, int document_id) const;
+    MatchDocumentData MatchDocument(const std::execution::parallel_policy&, const std::string_view raw_query, int document_id) const;
 
-    template <typename Requirement>
-    std::vector<Document> FindTopDocuments(const std::execution::parallel_policy&, const std::string_view raw_query, Requirement requirement) const;
-
-    std::vector<Document> FindTopDocuments(const std::string_view raw_query, DocumentStatus required_status) const;
-    std::vector<Document> FindTopDocuments(const std::execution::sequenced_policy&, const std::string_view raw_query, DocumentStatus required_status) const;
-    std::vector<Document> FindTopDocuments(const std::execution::parallel_policy&, const std::string_view raw_query, DocumentStatus required_status) const;
-
-    std::vector<Document> FindTopDocuments(const std::string_view raw_query) const;
-    std::vector<Document> FindTopDocuments(const std::execution::sequenced_policy&, const std::string_view raw_query) const;
-    std::vector<Document> FindTopDocuments(const std::execution::parallel_policy&, const std::string_view raw_query) const;
-
-    std::tuple<std::vector<std::string_view>, DocumentStatus> MatchDocument(const std::string_view raw_query, int document_id) const;
-    std::tuple<std::vector<std::string_view>, DocumentStatus> MatchDocument(
-        const std::execution::sequenced_policy&, const std::string_view raw_query, int document_id) const;
-    std::tuple<std::vector<std::string_view>, DocumentStatus> MatchDocument(
-        const std::execution::parallel_policy&, const std::string_view raw_query, int document_id) const;
-
-    // итератор на начало вектора id всех документов
+	// итератор на начало вектора id всех документов
     std::set<int>::const_iterator begin() const;
 
     // итератор на конец вектора id всех документов
@@ -72,9 +65,7 @@ public:
 
     // удаление документа по id
     void RemoveDocument(int document_id);
-
     void RemoveDocument(const std::execution::sequenced_policy&, int document_id);
-
     void RemoveDocument(const std::execution::parallel_policy&, int document_id);
 
 private:
@@ -88,12 +79,13 @@ private:
     {
         DocumentStatus status = DocumentStatus::ACTUAL;
         int rating = 0;
+        std::set<std::string, std::less<>> words_data;
     };
 
-    // хранит id документов в порядке добавления пользователем;
+    // id имеющихся документов;
     std::set<int> added_documents_id_;
 
-    std::set<std::string, std::less<>> words_data_;
+    //std::set<std::string, std::less<>> words_data_;
 
     // word -> [ document_id, TF ]
     std::map<std::string_view, std::map<int, double>> word_to_documents_freqs_;
@@ -101,9 +93,10 @@ private:
     // id -> [ word, TF ]
     std::map<int, std::map<std::string_view, double>> document_to_words_freqs_;
 
-    // соответствие id -> status, rating
+    // соответствие id -> { status, rating }
     std::map<int, DocumentData> documents_data_;
 
+    // множество стоп-слов поискового сервера
     std::set<std::string, std::less<>> stop_words_;
 
 private:
@@ -115,10 +108,8 @@ private:
 
     template <typename Requirement>
     std::vector<Document> FindAllDocuments(const Query& parsed_query, Requirement requirement) const;
-
     template <typename Requirement>
     std::vector<Document> FindAllDocuments(const std::execution::sequenced_policy&, const Query& parsed_query, Requirement requirement) const;
-
     template <typename Requirement>
     std::vector<Document> FindAllDocuments(const std::execution::parallel_policy&, const Query& parsed_query, Requirement requirement, size_t buckets_count = 100) const;
 
@@ -220,12 +211,12 @@ std::vector<Document> SearchServer::FindAllDocuments
 					const auto& current_document_data = documents_data_.at(document_id);
 					if (requirement(document_id, current_document_data.status, current_document_data.rating))
 					{
-                        docs_to_relevance[document_id].ref_to_value +=  word_idf * term_freq;
+						docs_to_relevance[document_id].ref_to_value += word_idf * term_freq;
 					}
 				}
 			}
 		}
-    );
+	);
 
 	for_each(execution::par, parsed_query.minus_words.begin(), parsed_query.minus_words.end(),
 		[&](const string_view minus_word) {
@@ -272,22 +263,16 @@ std::vector<Document> SearchServer::FindTopDocuments(const std::string_view raw_
 	return matched_documents;
 }
 
-template <typename Requirement>
+template <typename Policy, typename Requirement>
 std::vector<Document> SearchServer::FindTopDocuments
-(const std::execution::sequenced_policy&, const std::string_view raw_query, Requirement requirement) const {
-	return FindTopDocuments(raw_query, requirement);
-}
-
-template <typename Requirement>
-std::vector<Document> SearchServer::FindTopDocuments
-(const std::execution::parallel_policy&, const std::string_view raw_query, Requirement requirement) const {
+(const Policy& policy, const std::string_view raw_query, Requirement requirement) const {
 
     using namespace std;
 
     // throws invalid_argument exception
     Query parsed_query = ParseQuery(raw_query);
 
-    auto matched_documents = FindAllDocuments(execution::par, parsed_query, requirement);
+    auto matched_documents = FindAllDocuments(policy, parsed_query, requirement);
 
     sort(matched_documents.begin(), matched_documents.end(),
         [](const Document& lhs, const Document& rhs) {
@@ -300,6 +285,20 @@ std::vector<Document> SearchServer::FindTopDocuments
     }
 
     return matched_documents;
+}
+
+template <typename Policy>
+std::vector<Document> SearchServer::FindTopDocuments(const Policy& policy, const std::string_view raw_query, DocumentStatus required_status) const
+{
+    return FindTopDocuments(policy, raw_query,
+        [required_status](int document_id, DocumentStatus doc_status, int rating)
+        {return doc_status == required_status; });
+}
+
+template <typename Policy>
+std::vector<Document> SearchServer::FindTopDocuments(const Policy& policy, const std::string_view raw_query) const
+{
+    return FindTopDocuments(policy, raw_query, DocumentStatus::ACTUAL);
 }
 
 void PrintMatchDocumentResult(int document_id, const std::vector<std::string>& words, DocumentStatus status);

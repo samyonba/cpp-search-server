@@ -55,17 +55,18 @@ void SearchServer::AddDocument(int document_id, std::string_view document, Docum
     }
 
     vector<string_view> document_words = SplitIntoWordsNoStop(document);
-
     vector<set<string>::iterator> doc_words_ptrs;
-
-    for (const auto& word : document_words) {
-        words_data_.insert(static_cast<string>(word));
-        doc_words_ptrs.push_back(words_data_.find(word));
-    }
 
     added_documents_id_.insert(document_id);
     auto document_rating = ComputeAverageRating(ratings);
     documents_data_[document_id] = { status, document_rating };
+
+    DocumentData& cur_doc_data = documents_data_[document_id];
+
+    for (const auto& word : document_words) {
+        cur_doc_data.words_data.insert(static_cast<string>(word));
+        doc_words_ptrs.push_back(cur_doc_data.words_data.find(word));
+    }
 
     double freq_increase = 1. / document_words.size();
 
@@ -89,35 +90,13 @@ vector<Document> SearchServer::FindTopDocuments(const string_view raw_query, Doc
 		{return doc_status == required_status; });
 }
 
-std::vector<Document> SearchServer::FindTopDocuments(const std::execution::sequenced_policy&, const std::string_view raw_query, DocumentStatus required_status) const
-{
-    return FindTopDocuments(raw_query, required_status);
-}
-
-std::vector<Document> SearchServer::FindTopDocuments(const std::execution::parallel_policy&, const std::string_view raw_query, DocumentStatus required_status) const
-{
-    return FindTopDocuments(std::execution::par, raw_query,
-        [required_status](int document_id, DocumentStatus doc_status, int rating)
-        {return doc_status == required_status; });
-}
-
 vector<Document> SearchServer::FindTopDocuments(const string_view raw_query) const {
     return FindTopDocuments(raw_query, DocumentStatus::ACTUAL);
 }
 
-std::vector<Document> SearchServer::FindTopDocuments(const std::execution::sequenced_policy&, const std::string_view raw_query) const
-{
-    return FindTopDocuments(raw_query);
-}
-
-std::vector<Document> SearchServer::FindTopDocuments(const std::execution::parallel_policy&, const std::string_view raw_query) const
-{
-    return FindTopDocuments(std::execution::par, raw_query, DocumentStatus::ACTUAL);
-}
-
 // Метод возвращает вектор всех плюс-слов запроса, содержащихся в документе и статус документа
 // Если документ не соответствует запросу (нет пересечений по плюс-словам или есть минус-слово), возвращает пустой вектор слов и статус документа
-tuple<vector<string_view>, DocumentStatus> SearchServer::MatchDocument(const string_view raw_query, int document_id) const {
+MatchDocumentData SearchServer::MatchDocument(const string_view raw_query, int document_id) const {
     // попытка матчинга документа по несуществующему id
 	if (!documents_data_.count(document_id))
     {
@@ -145,12 +124,12 @@ tuple<vector<string_view>, DocumentStatus> SearchServer::MatchDocument(const str
 	return { matched_plus_words, documents_data_.at(document_id).status };
 }
 
-tuple<vector<string_view>, DocumentStatus> SearchServer::MatchDocument
+MatchDocumentData SearchServer::MatchDocument
 (const std::execution::sequenced_policy&, const string_view raw_query, int document_id) const {
     return MatchDocument(raw_query, document_id);
 }
 
-tuple<vector<string_view>, DocumentStatus> SearchServer::MatchDocument
+MatchDocumentData SearchServer::MatchDocument
 (const std::execution::parallel_policy&, const string_view raw_query, int document_id) const {
     // попытка матчинга документа по несуществующему id
     if (!documents_data_.count(document_id))
@@ -233,37 +212,6 @@ void SearchServer::RemoveDocument(const std::execution::sequenced_policy&, int d
 {
     RemoveDocument(document_id);
 }
-
-//void SearchServer::RemoveDocument(const std::execution::parallel_policy&, int document_id)
-//{
-//    if (!added_documents_id_.count(document_id))
-//    {
-//        return;
-//    }
-//
-//    added_documents_id_.erase(document_id);
-//
-//    documents_data_.erase(documents_data_.find(document_id));
-//
-//    std::vector<const std::string*> keys;
-//
-//    for (auto& elm : document_to_words_freqs_[document_id]) {
-//        keys.push_back(&elm.first);
-//    }
-//
-//    std::for_each(std::execution::par,
-//        keys.begin(),
-//        keys.end(),
-//        [&](const std::string* key)
-//        {
-//            if (word_to_documents_freqs_.count(*key) > 0)
-//            {
-//                word_to_documents_freqs_[*key].erase(document_id);
-//            }
-//        });
-//
-//    document_to_words_freqs_.erase(document_id);
-//}
 
 void SearchServer::RemoveDocument(const std::execution::parallel_policy& policy, int document_id)
 {
